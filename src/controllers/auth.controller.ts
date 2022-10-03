@@ -1,24 +1,41 @@
 import { Request, Response } from "express";
 import User, { IUser } from '../models/User';
-
+import { signupValidation, signinValidation } from '../libs/joi';
 import jwt from 'jsonwebtoken';
 
 export const signup = async (req: Request, res: Response) => {
+    // Validation
+    const { error } = signupValidation(req.body);
+    if (error) return res.status(400).json(error.message);
+
+    // Email Validaion
+    const emailExists = await User.findOne({ email: req.body.email });
+    if (emailExists) return res.status(400).json('Email already exists');
+
     // saving a new user
-    const user: IUser = new User({
-        username: req.body.username,
-        email: req.body.email,
-        password: req.body.password
-    });
-    user.password = await user.encryptPassword(user.password);
-    const savedUser = await user.save();
-    // token
-    const token: string = jwt.sign({_id: savedUser._id}, process.env.TOKEN_SECRET || 'tokentest');
-    
-    res.header('auth-token', token).json(savedUser);
+    try {
+        const newUser: IUser = new User({
+            username: req.body.username,
+            email: req.body.email,
+            password: req.body.password
+        });
+        newUser.password = await newUser.encryptPassword(newUser.password);
+        const savedUser = await newUser.save();
+
+        const token: string = jwt.sign({_id: savedUser._id}, process.env['TOKEN_SECRET'] || '', {
+            expiresIn: 60 * 60 * 24
+        });
+
+        res.header('auth-token', token).json(savedUser);
+    } catch (e) {
+        res.status(400).json(e);   
+    }
 };
 
 export const signin = async (req: Request, res: Response) => {
+
+    const { error } = signinValidation(req.body);
+    if (error) return res.status(400).json(error.message);
 
     const user = await User.findOne({ email: req.body.email });
     if(!user) return res.status(400).json('Email or password is wrong');    
@@ -26,11 +43,11 @@ export const signin = async (req: Request, res: Response) => {
     const correctPassword: boolean = await user.validatePassword(req.body.password);
     if(!correctPassword) return res.status(400).json('Invalid Password');
 
-    const token: string = jwt.sign({_id: user._id}, process.env.TOKEN_SECRET || 'tokentest', {
+    const token: string = jwt.sign({_id: user._id}, process.env.TOKEN_SECRET || '', {
         expiresIn: 60 * 60 * 24
     });
 
-    res.header('auth-token', token).json(user);
+    res.header('auth-token', token).json(token);
 };
 
 export const profile = async (req: Request, res: Response) => {
